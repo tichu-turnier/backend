@@ -19,7 +19,7 @@ serve(async (req) => {
     )
 
     const teamToken = req.headers.get('team-token')
-    const { game_id, team1_score, team2_score, team1_total_score, team2_total_score, participants } = await req.json()
+    const { game_id, team1_score, team2_score, team1_total_score, team2_total_score, participants, team1_double_win, team2_double_win, beschiss, notes } = await req.json()
 
     if (!teamToken) {
       throw new Error('Team token required')
@@ -57,6 +57,127 @@ serve(async (req) => {
       throw new Error('Match already confirmed')
     }
 
+    // Validate Tichu game rules
+    if (participants.length !== 4) {
+      throw new Error('Exactly 4 participants required')
+    }
+
+    const positions = participants.map((p: any) => p.position).filter((pos: any) => pos !== null)
+    const uniquePositions = new Set(positions)
+    
+    // Check for double win scenario
+    const firstPlace = participants.find((p: any) => p.position === 1)
+    const secondPlace = participants.find((p: any) => p.position === 2)
+    const isDoubleWin = firstPlace && secondPlace && firstPlace.team === secondPlace.team
+    
+    // Validate positions
+    if (isDoubleWin) {
+      // Double win: only positions 1 and 2 should be set
+      if (positions.length !== 2 || !uniquePositions.has(1) || !uniquePositions.has(2)) {
+        throw new Error('For double win games, only positions 1 and 2 should be set')
+      }
+      // Positions 3 and 4 should be null
+      const nullPositions = participants.filter((p: any) => p.position === null)
+      if (nullPositions.length !== 2) {
+        throw new Error('For double win games, positions 3 and 4 must be null')
+      }
+    } else {
+      // Normal game: all positions 1-4 must be set and unique
+      if (positions.length !== 4 || uniquePositions.size !== 4 || ![1, 2, 3, 4].every(n => uniquePositions.has(n))) {
+        throw new Error('For normal games, positions must be unique and between 1 and 4')
+      }
+    }
+
+    // Validate team assignments (2 players per team)
+    const team1Players = participants.filter((p: any) => p.team === 1)
+    const team2Players = participants.filter((p: any) => p.team === 2)
+    if (team1Players.length !== 2 || team2Players.length !== 2) {
+      throw new Error('Each team must have exactly 2 players')
+    }
+    
+    if (isDoubleWin) {
+      // Double win: base scores should be 0, only bonus points count
+      if (team1_score !== 0 || team2_score !== 0) {
+        throw new Error('Base scores must be 0 for double win games')
+      }
+      // Verify double win flags match the positions
+      const winningTeam = firstPlace.team
+      if ((winningTeam === 1 && !team1_double_win) || (winningTeam === 2 && !team2_double_win)) {
+        throw new Error('Double win flag does not match positions')
+      }
+    } else {
+      // No double win: base scores should sum to 100
+      if (team1_score + team2_score !== 100) {
+        throw new Error('Base scores must sum to 100 for non-double-win games')
+      }
+      if (team1_double_win || team2_double_win) {
+        throw new Error('No double win occurred but double win flag is set')
+      }
+    }
+
+    // Validate Tichu calls and bomb counts
+    participants.forEach((p: any) => {
+      // Player can only call either small OR grand tichu, not both
+      if (p.tichu_call && p.grand_tichu_call) {
+        throw new Error('Player cannot call both small and grand tichu')
+      }
+      // Tichu success validation
+      if (p.tichu_success && !p.tichu_call && !p.grand_tichu_call) {
+        throw new Error('Tichu success flag set but no tichu call made')
+      }
+      if ((p.tichu_call || p.grand_tichu_call) && p.tichu_success && p.position !== 1) {
+        throw new Error('Tichu can only be successful if player finished 1st')
+      }
+      // Validate bomb count
+      const bombCount = p.bomb_count || 0
+      if (bombCount < 0 || bombCount > 3) {
+        throw new Error('Bomb count must be between 0 and 3')
+      }
+    })
+
+    // Validate bonus point calculations
+    let expectedTeam1Bonus = 0
+    let expectedTeam2Bonus = 0
+
+    // Calculate expected tichu bonuses
+    participants.forEach((p: any) => {
+      const team = p.team
+      if (p.tichu_call && p.tichu_success) {
+        if (team === 1) expectedTeam1Bonus += 100
+        else expectedTeam2Bonus += 100
+      } else if (p.tichu_call && !p.tichu_success) {
+        if (team === 1) expectedTeam1Bonus -= 100
+        else expectedTeam2Bonus -= 100
+      }
+      
+      if (p.grand_tichu_call && p.tichu_success) {
+        if (team === 1) expectedTeam1Bonus += 200
+        else expectedTeam2Bonus += 200
+      } else if (p.grand_tichu_call && !p.tichu_success) {
+        if (team === 1) expectedTeam1Bonus -= 200
+        else expectedTeam2Bonus -= 200
+      }
+    })
+
+    // Add double win bonus
+    if (isDoubleWin) {
+      const winningTeam = firstPlace.team
+      if (winningTeam === 1) expectedTeam1Bonus += 200
+      else expectedTeam2Bonus += 200
+    }
+
+    // Calculate expected total scores
+    const expectedTeam1Total = (isDoubleWin ? 0 : team1_score) + expectedTeam1Bonus
+    const expectedTeam2Total = (isDoubleWin ? 0 : team2_score) + expectedTeam2Bonus
+
+    // Validate total scores match expected calculations
+    if (team1_total_score !== expectedTeam1Total) {
+      throw new Error(`Team 1 total score incorrect. Expected ${expectedTeam1Total}, got ${team1_total_score}`)
+    }
+    if (team2_total_score !== expectedTeam2Total) {
+      throw new Error(`Team 2 total score incorrect. Expected ${expectedTeam2Total}, got ${team2_total_score}`)
+    }
+
     // Update game scores
     const { error: gameUpdateError } = await supabase
       .from('games')
@@ -64,7 +185,11 @@ serve(async (req) => {
         team1_score,
         team2_score,
         team1_total_score,
-        team2_total_score
+        team2_total_score,
+        team1_double_win: team1_double_win || false,
+        team2_double_win: team2_double_win || false,
+        beschiss: beschiss || false,
+        notes: notes || null
       })
       .eq('id', game_id)
 
