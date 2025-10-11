@@ -53,7 +53,7 @@ CREATE TABLE tournament_matches (
     team1_id UUID REFERENCES teams(id) ON DELETE CASCADE,
     team2_id UUID REFERENCES teams(id) ON DELETE CASCADE,
     table_number INTEGER,
-    status VARCHAR(20) DEFAULT 'pending' CHECK (status IN ('pending', 'playing', 'confirming', 'completed')),
+    status VARCHAR(20) DEFAULT 'playing' CHECK (status IN ('playing', 'confirming', 'completed')),
     team1_confirmed BOOLEAN DEFAULT FALSE,
     team2_confirmed BOOLEAN DEFAULT FALSE,
     notes TEXT,

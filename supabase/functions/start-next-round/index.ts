@@ -195,7 +195,7 @@ serve(async (req) => {
       team1_id: pair[0],
       team2_id: pair[1],
       table_number: index + 1,
-      status: 'pending'
+      status: 'playing'
     }))
 
     const { data: newMatches, error: matchesError } = await supabase
