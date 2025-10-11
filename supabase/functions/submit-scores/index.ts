@@ -12,48 +12,106 @@ serve(async (req) => {
   }
 
   try {
+    const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')
+    if (!serviceRoleKey) {
+      throw new Error('SUPABASE_SERVICE_ROLE_KEY not found')
+    }
+    
     const supabase = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
-      Deno.env.get('SUPABASE_ANON_KEY') ?? '',
-      { global: { headers: { Authorization: req.headers.get('Authorization') || `Bearer ${Deno.env.get('SUPABASE_ANON_KEY')}` } } }
+      serviceRoleKey,
+      {
+        global: {
+          headers: {
+            Authorization: `Bearer ${serviceRoleKey}`
+          }
+        }
+      }
     )
 
     const teamToken = req.headers.get('team-token')
-    const { game_id, team1_score, team2_score, team1_total_score, team2_total_score, participants, team1_double_win, team2_double_win, beschiss, notes } = await req.json()
+    const { game_id, match_id, game_number, team1_score, team2_score, team1_total_score, team2_total_score, participants, team1_double_win, team2_double_win, beschiss, notes } = await req.json()
 
     if (!teamToken) {
       throw new Error('Team token required')
     }
 
-    // Verify team has access to this game
-    const { data: game, error: gameError } = await supabase
-      .from('games')
-      .select(`
-        *,
-        match:tournament_matches(
-          team1_id,
-          team2_id,
-          team1_confirmed,
-          team2_confirmed,
+    // For new games, match_id and game_number are required
+    // For existing games, game_id is required
+    if (!game_id && (!match_id || !game_number)) {
+      throw new Error('Either game_id or both match_id and game_number are required')
+    }
+
+    if (game_number && (game_number < 1 || game_number > 4)) {
+      throw new Error('Game number must be between 1 and 4')
+    }
+
+    let game, matchData
+    
+    if (game_id) {
+      // Update existing game
+      const { data: existingGame, error: gameError } = await supabase
+        .from('games')
+        .select(`
+          *,
+          match:tournament_matches(
+            team1_id,
+            team2_id,
+            team1_confirmed,
+            team2_confirmed,
+            team1:team1_id(access_token),
+            team2:team2_id(access_token)
+          )
+        `)
+        .eq('id', game_id)
+        .single()
+
+      if (gameError || !existingGame) {
+        throw new Error('Game not found')
+      }
+      
+      game = existingGame
+      matchData = existingGame.match
+    } else {
+      // Create new game - verify match access first
+      const { data: match, error: matchError } = await supabase
+        .from('tournament_matches')
+        .select(`
+          *,
           team1:team1_id(access_token),
           team2:team2_id(access_token)
-        )
-      `)
-      .eq('id', game_id)
-      .single()
+        `)
+        .eq('id', match_id)
+        .single()
 
-    if (gameError || !game) {
-      throw new Error('Game not found')
+      if (matchError || !match) {
+        throw new Error('Match not found')
+      }
+      
+      matchData = match
+      
+      // Check for duplicate game_number
+      const { data: existingGames, error: duplicateError } = await supabase
+        .from('games')
+        .select('id')
+        .eq('match_id', match_id)
+        .eq('game_number', game_number)
+
+      if (duplicateError) throw duplicateError
+      if (existingGames && existingGames.length > 0) {
+        throw new Error(`Game number ${game_number} already exists for this match`)
+      }
     }
 
-    const hasAccess = game.match.team1.access_token === teamToken || 
-                     game.match.team2.access_token === teamToken
+    // Verify team access
+    const hasAccess = matchData.team1.access_token === teamToken || 
+                     matchData.team2.access_token === teamToken
 
     if (!hasAccess) {
-      throw new Error('No access to this game')
+      throw new Error('No access to this match')
     }
 
-    if (game.match.team1_confirmed || game.match.team2_confirmed) {
+    if (matchData.team1_confirmed || matchData.team2_confirmed) {
       throw new Error('Match already confirmed')
     }
 
@@ -178,29 +236,44 @@ serve(async (req) => {
       throw new Error(`Team 2 total score incorrect. Expected ${expectedTeam2Total}, got ${team2_total_score}`)
     }
 
-    // Update game scores
-    const { error: gameUpdateError } = await supabase
-      .from('games')
-      .update({
-        team1_score,
-        team2_score,
-        team1_total_score,
-        team2_total_score,
-        team1_double_win: team1_double_win || false,
-        team2_double_win: team2_double_win || false,
-        beschiss: beschiss || false,
-        notes: notes || null
-      })
-      .eq('id', game_id)
+    // Upsert game scores
+    const gameData = {
+      team1_score,
+      team2_score,
+      team1_total_score,
+      team2_total_score,
+      team1_double_win: team1_double_win || false,
+      team2_double_win: team2_double_win || false,
+      beschiss: beschiss || false,
+      notes: notes || null
+    }
+    
+    if (game_id) {
+      gameData.id = game_id
+      // For updates, also include match_id and game_number to avoid null constraint violations
+      gameData.match_id = game.match_id
+      gameData.game_number = game.game_number
+    } else {
+      gameData.match_id = match_id
+      gameData.game_number = game_number
+    }
 
-    if (gameUpdateError) throw gameUpdateError
+    const { data: upsertedGame, error: gameUpsertError } = await supabase
+      .from('games')
+      .upsert(gameData)
+      .select('id')
+      .single()
+
+    if (gameUpsertError) throw gameUpsertError
+    
+    const finalGameId = game_id || upsertedGame.id
 
     // Update game participants (for detailed tracking)
     const participantUpdates = participants.map((p: any) => 
       supabase
         .from('game_participants')
         .upsert({
-          game_id,
+          game_id: finalGameId,
           player_id: p.player_id,
           team: p.team,
           position: p.position || null,
@@ -217,7 +290,9 @@ serve(async (req) => {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     })
   } catch (error) {
-    return new Response(JSON.stringify({ error: error.message }), {
+    console.error('Submit scores error:', error)
+    const errorMessage = error?.message || error?.toString() || 'Unknown error occurred'
+    return new Response(JSON.stringify({ error: errorMessage }), {
       status: 400,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     })

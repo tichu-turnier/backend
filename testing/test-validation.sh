@@ -10,14 +10,14 @@ if [ -z "$JWT_TOKEN" ]; then
   source ./testing/login-test-user.sh
 fi
 
-echo "=== Tichu Game Validation Tests ==="
+echo "=== Tichu Game Validation Tests (UPSERT) ==="
 
-# Setup: Create tournament, players, teams, match, game
+# Setup: Create tournament, players, teams, match
 echo -e "\n=== SETUP ==="
 TOURNAMENT_RESPONSE=$(curl -s -X POST "$BASE_URL/functions/v1/create-tournament" \
   -H "Authorization: Bearer $JWT_TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"name": "Validation Test Tournament", "description": "Testing validation", "max_teams": 8}')
+  -d '{"name": "UPSERT Test Tournament", "description": "Testing UPSERT validation", "max_teams": 8}')
 TOURNAMENT_ID=$(echo $TOURNAMENT_RESPONSE | jq -r '.id')
 
 curl -s -X POST "$BASE_URL/rest/v1/players" \
@@ -45,15 +45,7 @@ START_RESPONSE=$(curl -s -X POST "$BASE_URL/functions/v1/start-tournament" \
   -d "{\"tournament_id\": \"$TOURNAMENT_ID\"}")
 MATCH_ID=$(echo $START_RESPONSE | jq -r '.matches[0].id')
 
-GAME_RESPONSE=$(curl -s -X POST "$BASE_URL/rest/v1/games" \
-  -H "Authorization: Bearer $JWT_TOKEN" \
-  -H "apikey: $ANON_KEY" \
-  -H "Content-Type: application/json" \
-  -H "Prefer: return=representation" \
-  -d "[{\"match_id\": \"$MATCH_ID\", \"game_number\": 1}]")
-GAME_ID=$(echo $GAME_RESPONSE | jq -r '.[0].id')
-
-echo "Setup complete. Game ID: $GAME_ID"
+echo "Setup complete. Match ID: $MATCH_ID"
 
 # Test function
 test_game() {
@@ -83,11 +75,12 @@ test_game() {
   fi
 }
 
-echo -e "\n=== VALID GAMES ==="
+echo -e "\n=== VALID GAMES (NEW CREATION) ==="
 
 # Valid normal game
-test_game "Valid Normal Game" "{
-  \"game_id\": \"$GAME_ID\",
+test_game "Valid Game 1 - normal game" "{
+  \"match_id\": \"$MATCH_ID\",
+  \"game_number\": 1,
   \"team1_score\": 60,
   \"team2_score\": 40,
   \"team1_total_score\": 160,
@@ -101,8 +94,9 @@ test_game "Valid Normal Game" "{
 }" "true"
 
 # Valid double win game
-test_game "Valid Double Win Game" "{
-  \"game_id\": \"$GAME_ID\",
+test_game "Valid Game 2 - Double Win" "{
+  \"match_id\": \"$MATCH_ID\",
+  \"game_number\": 2,
   \"team1_score\": 0,
   \"team2_score\": 0,
   \"team1_total_score\": 200,
@@ -117,8 +111,9 @@ test_game "Valid Double Win Game" "{
 }" "true"
 
 # Valid: Successful Grand Tichu
-test_game "Successful Grand Tichu" "{
-  \"game_id\": \"$GAME_ID\",
+test_game "Valid Game 3 - Successful Grand Tichu" "{
+  \"match_id\": \"$MATCH_ID\",
+  \"game_number\": 3,
   \"team1_score\": 30,
   \"team2_score\": 70,
   \"team1_total_score\": 230,
@@ -132,8 +127,9 @@ test_game "Successful Grand Tichu" "{
 }" "true"
 
 # Valid: Failed Small Tichu
-test_game "Failed Small Tichu" "{
-  \"game_id\": \"$GAME_ID\",
+test_game "Valid: Game 4 - Failed Small Tichu" "{
+  \"match_id\": \"$MATCH_ID\",
+  \"game_number\": 4,
   \"team1_score\": 80,
   \"team2_score\": 20,
   \"team1_total_score\": -20,
@@ -146,9 +142,15 @@ test_game "Failed Small Tichu" "{
   ]
 }" "true"
 
+# Get Game 4 ID for update tests
+GAME4_ID=$(curl -s -X GET "$BASE_URL/rest/v1/games?match_id=eq.$MATCH_ID&game_number=eq.4&select=id" -H "Authorization: Bearer $JWT_TOKEN" -H "apikey: $ANON_KEY" | jq -r '.[0].id')
+echo "Game 4 ID for updates: $GAME4_ID"
+
+echo -e "\n=== VALID GAMES (UPDATES) ==="
+
 # Valid: Multiple Tichu Calls (different players)
 test_game "Multiple Tichu Calls" "{
-  \"game_id\": \"$GAME_ID\",
+  \"game_id\": \"$GAME4_ID\",
   \"team1_score\": 40,
   \"team2_score\": 60,
   \"team1_total_score\": 140,
@@ -165,7 +167,7 @@ echo -e "\n=== INVALID GAMES ==="
 
 # Invalid: Wrong number of participants
 test_game "Wrong Number of Participants" "{
-  \"game_id\": \"$GAME_ID\",
+  \"game_id\": \"$GAME4_ID\",
   \"team1_score\": 50,
   \"team2_score\": 50,
   \"participants\": [
@@ -175,7 +177,7 @@ test_game "Wrong Number of Participants" "{
 
 # Invalid: Duplicate positions
 test_game "Duplicate Positions" "{
-  \"game_id\": \"$GAME_ID\",
+  \"game_id\": \"$GAME4_ID\",
   \"team1_score\": 50,
   \"team2_score\": 50,
   \"participants\": [
@@ -188,7 +190,7 @@ test_game "Duplicate Positions" "{
 
 # Invalid: Wrong team distribution
 test_game "Wrong Team Distribution" "{
-  \"game_id\": \"$GAME_ID\",
+  \"game_id\": \"$GAME4_ID\",
   \"team1_score\": 50,
   \"team2_score\": 50,
   \"participants\": [
@@ -201,7 +203,7 @@ test_game "Wrong Team Distribution" "{
 
 # Invalid: Base scores don't sum to 100
 test_game "Base Scores Don't Sum to 100" "{
-  \"game_id\": \"$GAME_ID\",
+  \"game_id\": \"$GAME4_ID\",
   \"team1_score\": 60,
   \"team2_score\": 50,
   \"participants\": [
@@ -214,7 +216,7 @@ test_game "Base Scores Don't Sum to 100" "{
 
 # Invalid: Double win with non-zero base scores
 test_game "Double Win with Non-Zero Base Scores" "{
-  \"game_id\": \"$GAME_ID\",
+  \"game_id\": \"$GAME4_ID\",
   \"team1_score\": 50,
   \"team2_score\": 50,
   \"team1_double_win\": true,
@@ -228,7 +230,7 @@ test_game "Double Win with Non-Zero Base Scores" "{
 
 # Invalid: Both tichu calls
 test_game "Both Tichu Calls" "{
-  \"game_id\": \"$GAME_ID\",
+  \"game_id\": \"$GAME4_ID\",
   \"team1_score\": 50,
   \"team2_score\": 50,
   \"participants\": [
@@ -241,7 +243,7 @@ test_game "Both Tichu Calls" "{
 
 # Invalid: Tichu success without call
 test_game "Tichu Success Without Call" "{
-  \"game_id\": \"$GAME_ID\",
+  \"game_id\": \"$GAME4_ID\",
   \"team1_score\": 50,
   \"team2_score\": 50,
   \"participants\": [
@@ -254,7 +256,7 @@ test_game "Tichu Success Without Call" "{
 
 # Invalid: Tichu success but not 1st place
 test_game "Tichu Success But Not 1st Place" "{
-  \"game_id\": \"$GAME_ID\",
+  \"game_id\": \"$GAME4_ID\",
   \"team1_score\": 50,
   \"team2_score\": 50,
   \"participants\": [
@@ -267,7 +269,7 @@ test_game "Tichu Success But Not 1st Place" "{
 
 # Invalid: Too many bombs
 test_game "Too Many Bombs" "{
-  \"game_id\": \"$GAME_ID\",
+  \"game_id\": \"$GAME4_ID\",
   \"team1_score\": 50,
   \"team2_score\": 50,
   \"participants\": [
@@ -282,7 +284,7 @@ echo -e "\n=== INVALID BONUS POINT CALCULATIONS ==="
 
 # Invalid: Wrong Small Tichu bonus (should be +100, not +50)
 test_game "Wrong Small Tichu Bonus" "{
-  \"game_id\": \"$GAME_ID\",
+  \"game_id\": \"$GAME4_ID\",
   \"team1_score\": 60,
   \"team2_score\": 40,
   \"team1_total_score\": 110,
@@ -297,7 +299,7 @@ test_game "Wrong Small Tichu Bonus" "{
 
 # Invalid: Wrong Grand Tichu bonus (should be +200, not +100)
 test_game "Wrong Grand Tichu Bonus" "{
-  \"game_id\": \"$GAME_ID\",
+  \"game_id\": \"$GAME4_ID\",
   \"team1_score\": 30,
   \"team2_score\": 70,
   \"team1_total_score\": 130,
@@ -312,7 +314,7 @@ test_game "Wrong Grand Tichu Bonus" "{
 
 # Invalid: Wrong failed Tichu penalty (should be -100, not -50)
 test_game "Wrong Failed Tichu Penalty" "{
-  \"game_id\": \"$GAME_ID\",
+  \"game_id\": \"$GAME4_ID\",
   \"team1_score\": 80,
   \"team2_score\": 20,
   \"team1_total_score\": 30,
@@ -327,7 +329,7 @@ test_game "Wrong Failed Tichu Penalty" "{
 
 # Invalid: Wrong failed Grand Tichu penalty (should be -200, not -100)
 test_game "Wrong Failed Grand Tichu Penalty" "{
-  \"game_id\": \"$GAME_ID\",
+  \"game_id\": \"$GAME4_ID\",
   \"team1_score\": 20,
   \"team2_score\": 80,
   \"team1_total_score\": -80,
@@ -342,7 +344,7 @@ test_game "Wrong Failed Grand Tichu Penalty" "{
 
 # Invalid: Wrong Double Win bonus (should be +200, not +100)
 test_game "Wrong Double Win Bonus" "{
-  \"game_id\": \"$GAME_ID\",
+  \"game_id\": \"$GAME4_ID\",
   \"team1_score\": 0,
   \"team2_score\": 0,
   \"team1_total_score\": 100,
@@ -358,7 +360,7 @@ test_game "Wrong Double Win Bonus" "{
 
 # Invalid: Multiple bonuses calculated wrong (Small Tichu + Grand Tichu)
 test_game "Multiple Bonuses Calculated Wrong" "{
-  \"game_id\": \"$GAME_ID\",
+  \"game_id\": \"$GAME4_ID\",
   \"team1_score\": 40,
   \"team2_score\": 60,
   \"team1_total_score\": 90,
