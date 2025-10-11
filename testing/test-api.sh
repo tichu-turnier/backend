@@ -139,11 +139,22 @@ echo $START_RESPONSE | jq -c '.matches[]' | while read match; do
     -d "{\"match_id\": \"$match_id\"}" > /dev/null
 done
 
-# Test 2: Team Access
-echo -e "\n2. Testing Team Access..."
-curl -X GET "$BASE_URL/functions/v1/team-access" \
+# Test 2: Team Access via REST API
+echo -e "\n2. Testing Team Access via REST API..."
+echo "2.1 Get team info by access token:"
+curl -X GET "$BASE_URL/rest/v1/teams?access_token=eq.$TEAM_ALPHA_TOKEN&select=*" \
   -H "Authorization: Bearer $ANON_KEY" \
-  -H "team-token: $TEAM_ALPHA_TOKEN" | jq .
+  -H "apikey: $ANON_KEY" | jq .
+
+echo -e "\n2.2 Get team matches:"
+curl -X GET "$BASE_URL/rest/v1/tournament_matches?team1_id=eq.$TEAM_ALPHA_ID&select=*,games(*)" \
+  -H "Authorization: Bearer $ANON_KEY" \
+  -H "apikey: $ANON_KEY" | jq .
+
+echo -e "\n2.3 Get tournament standings:"
+curl -X GET "$BASE_URL/rest/v1/teams?tournament_id=eq.$TOURNAMENT_ID&select=*" \
+  -H "Authorization: Bearer $ANON_KEY" \
+  -H "apikey: $ANON_KEY" | jq .
 
 # Test 3: Start next round
 echo -e "\n3. Starting next round..."
