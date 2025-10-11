@@ -57,7 +57,6 @@ CREATE TABLE tournament_matches (
     team1_confirmed BOOLEAN DEFAULT FALSE,
     team2_confirmed BOOLEAN DEFAULT FALSE,
     notes TEXT,
-    started_at TIMESTAMP WITH TIME ZONE,
     completed_at TIMESTAMP WITH TIME ZONE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );

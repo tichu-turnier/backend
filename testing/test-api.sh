@@ -205,4 +205,11 @@ echo $NEXT_ROUND_RESPONSE | jq -c '.matches[]' | while read match; do
     -d "{\"match_id\": \"$match_id\"}" > /dev/null
 done
 
+# Test 5: Finish Tournament
+echo -e "\n5. Finishing Tournament..."
+curl -X POST "$BASE_URL/functions/v1/finish-tournament" \
+  -H "Authorization: Bearer $JWT_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d "{\"tournament_id\": \"$TOURNAMENT_ID\"}" | jq .
+
 echo -e "\nDone!"

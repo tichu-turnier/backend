@@ -154,7 +154,7 @@ serve(async (req) => {
       }
     }
 
-    // Mark previous round as completed (if exists)
+    // Mark previous round as completed and update team points (if exists)
     if (tournament.current_round > 0) {
       const { error: updatePreviousRoundError } = await supabase
         .from('tournament_rounds')
@@ -163,6 +163,16 @@ serve(async (req) => {
         .eq('round_number', tournament.current_round)
 
       if (updatePreviousRoundError) throw updatePreviousRoundError
+
+      // Update team total_points
+      for (const team of standings) {
+        const { error: updateTeamError } = await supabase
+          .from('teams')
+          .update({ total_points: team.points })
+          .eq('id', team.id)
+
+        if (updateTeamError) throw updateTeamError
+      }
     }
 
     // Create new round
