@@ -88,8 +88,11 @@ serve(async (req) => {
         updateData.team2_confirmed = true
       }
 
-      // If both teams confirm, mark match as completed
-      if ((isTeam1 && match.team2_confirmed) || (isTeam2 && match.team1_confirmed)) {
+      // Check if both teams will be confirmed after this update
+      const team1WillBeConfirmed = isTeam1 ? true : match.team1_confirmed
+      const team2WillBeConfirmed = isTeam2 ? true : match.team2_confirmed
+      
+      if (team1WillBeConfirmed && team2WillBeConfirmed) {
         updateData.status = 'completed'
         updateData.completed_at = new Date().toISOString()
       }
