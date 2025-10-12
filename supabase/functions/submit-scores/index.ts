@@ -120,6 +120,13 @@ serve(async (req) => {
       throw new Error('Exactly 4 participants required')
     }
 
+    // Validate all participants have player_id
+    participants.forEach((p: any, index: number) => {
+      if (!p.player_id) {
+        throw new Error(`Player ID missing for participant ${index + 1}`)
+      }
+    })
+
     const positions = participants.map((p: any) => p.position).filter((pos: any) => pos !== null)
     const uniquePositions = new Set(positions)
     
@@ -269,10 +276,18 @@ serve(async (req) => {
     const finalGameId = game_id || upsertedGame.id
 
     // Update game participants (for detailed tracking)
+    if (game_id) {
+      // For updates, delete existing participants first to avoid conflicts
+      await supabase
+        .from('game_participants')
+        .delete()
+        .eq('game_id', finalGameId)
+    }
+    
     const participantUpdates = participants.map((p: any) => 
       supabase
         .from('game_participants')
-        .upsert({
+        .insert({
           game_id: finalGameId,
           player_id: p.player_id,
           team: p.team,
