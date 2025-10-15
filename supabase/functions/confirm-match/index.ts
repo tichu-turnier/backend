@@ -67,6 +67,11 @@ serve(async (req) => {
     let updateData = {}
     
     if (unconfirm) {
+      // Check if both teams are already confirmed
+      if (match.team1_confirmed && match.team2_confirmed) {
+        throw new Error('Cannot unconfirm when both teams have confirmed')
+      }
+      
       // Unconfirm: Remove confirmation and reopen match
       updateData.status = 'playing'
       updateData.completed_at = null
