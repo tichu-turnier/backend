@@ -156,6 +156,9 @@ CREATE POLICY "Users can manage game participants in own tournaments" ON game_pa
         WHERE g.id = game_id AND t.created_by = auth.uid()
     ));
 
+CREATE POLICY "Users can view all tournaments" ON tournaments
+    FOR SELECT USING (auth.uid() IS NOT NULL);
+
 -- Public read access for active tournaments
 CREATE POLICY "Public can view active tournaments" ON tournaments
     FOR SELECT USING (status IN ('active', 'completed'));
