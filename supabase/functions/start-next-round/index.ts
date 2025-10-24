@@ -83,11 +83,11 @@ serve(async (req) => {
         *,
         matches_as_team1:tournament_matches!team1_id(
           id, status, team1_id, team2_id,
-          games(team1_total_score, team2_total_score)
+          games(team1_total_score, team2_total_score, team1_victory_points, team2_victory_points)
         ),
         matches_as_team2:tournament_matches!team2_id(
           id, status, team1_id, team2_id,
-          games(team1_total_score, team2_total_score)
+          games(team1_total_score, team2_total_score, team1_victory_points, team2_victory_points)
         )
       `)
       .eq('tournament_id', tournament_id)
@@ -97,6 +97,7 @@ serve(async (req) => {
     // Calculate standings
     const standings = teams.map(team => {
       let totalPoints = 0
+      let victoryPoints = 0
       const playedAgainst = new Set()
 
       // Process matches as team1
@@ -105,6 +106,7 @@ serve(async (req) => {
           playedAgainst.add(match.team2_id)
           match.games.forEach(game => {
             totalPoints += game.team1_total_score
+            victoryPoints += game.team1_victory_points
           })
         }
       })
@@ -115,6 +117,7 @@ serve(async (req) => {
           playedAgainst.add(match.team1_id)
           match.games.forEach(game => {
             totalPoints += game.team2_total_score
+            victoryPoints += game.team2_victory_points
           })
         }
       })
@@ -123,9 +126,16 @@ serve(async (req) => {
         id: team.id,
         name: team.team_name,
         points: totalPoints,
+        victoryPoints: victoryPoints,
         playedAgainst: Array.from(playedAgainst)
       }
-    }).sort((a, b) => b.points - a.points)
+    }).sort((a, b) => {
+      // Sort by victory points first, then by tichu points as tiebreaker
+      if (b.victoryPoints !== a.victoryPoints) {
+        return b.victoryPoints - a.victoryPoints
+      }
+      return b.points - a.points
+    })
 
     // Swiss system pairing
     const pairings = []
@@ -164,11 +174,14 @@ serve(async (req) => {
 
       if (updatePreviousRoundError) throw updatePreviousRoundError
 
-      // Update team total_points
+      // Update team total_points and victory_points
       for (const team of standings) {
         const { error: updateTeamError } = await supabase
           .from('teams')
-          .update({ total_points: team.points })
+          .update({ 
+            total_points: team.points,
+            victory_points: team.victoryPoints
+          })
           .eq('id', team.id)
 
         if (updateTeamError) throw updateTeamError

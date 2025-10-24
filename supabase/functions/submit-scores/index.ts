@@ -243,12 +243,39 @@ serve(async (req) => {
       throw new Error(`Team 2 total score incorrect. Expected ${expectedTeam2Total}, got ${team2_total_score}`)
     }
 
+    // Calculate victory points
+    let team1VictoryPoints = 0
+    let team2VictoryPoints = 0
+
+    // Game win points (2 for win, 1 for tie)
+    if (team1_total_score > team2_total_score) {
+      team1VictoryPoints += 2
+    } else if (team2_total_score > team1_total_score) {
+      team2VictoryPoints += 2
+    } else {
+      team1VictoryPoints += 1
+      team2VictoryPoints += 1
+    }
+
+    // Tichu success points (1 per successful tichu)
+    participants.forEach((p: any) => {
+      if (p.tichu_success) {
+        if (p.team === 1) {
+          team1VictoryPoints += 1
+        } else {
+          team2VictoryPoints += 1
+        }
+      }
+    })
+
     // Upsert game scores
     const gameData = {
       team1_score,
       team2_score,
       team1_total_score,
       team2_total_score,
+      team1_victory_points: team1VictoryPoints,
+      team2_victory_points: team2VictoryPoints,
       team1_double_win: team1_double_win || false,
       team2_double_win: team2_double_win || false,
       beschiss: beschiss || false,

@@ -31,6 +31,7 @@ CREATE TABLE teams (
     player2_id UUID REFERENCES players(id) ON DELETE CASCADE,
     access_token VARCHAR(50) UNIQUE NOT NULL,
     total_points INTEGER DEFAULT 0,
+    victory_points INTEGER DEFAULT 0,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     UNIQUE(tournament_id, team_name)
 );
@@ -70,6 +71,8 @@ CREATE TABLE games (
     team2_score INTEGER NOT NULL DEFAULT 0,
     team1_total_score INTEGER NOT NULL DEFAULT 0,
     team2_total_score INTEGER NOT NULL DEFAULT 0,
+    team1_victory_points INTEGER DEFAULT 0,
+    team2_victory_points INTEGER DEFAULT 0,
     team1_double_win BOOLEAN DEFAULT FALSE,
     team2_double_win BOOLEAN DEFAULT FALSE,
     beschiss BOOLEAN DEFAULT FALSE,

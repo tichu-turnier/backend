@@ -62,11 +62,11 @@ serve(async (req) => {
         *,
         matches_as_team1:tournament_matches!team1_id(
           id, status, team1_id, team2_id,
-          games(team1_total_score, team2_total_score)
+          games(team1_total_score, team2_total_score, team1_victory_points, team2_victory_points)
         ),
         matches_as_team2:tournament_matches!team2_id(
           id, status, team1_id, team2_id,
-          games(team1_total_score, team2_total_score)
+          games(team1_total_score, team2_total_score, team1_victory_points, team2_victory_points)
         )
       `)
       .eq('tournament_id', tournament_id)
@@ -76,12 +76,14 @@ serve(async (req) => {
     // Calculate final standings
     const finalStandings = teams.map(team => {
       let totalPoints = 0
+      let victoryPoints = 0
 
       // Process matches as team1
       team.matches_as_team1.forEach(match => {
         if (match.status === 'completed') {
           match.games.forEach(game => {
             totalPoints += game.team1_total_score
+            victoryPoints += game.team1_victory_points
           })
         }
       })
@@ -91,6 +93,7 @@ serve(async (req) => {
         if (match.status === 'completed') {
           match.games.forEach(game => {
             totalPoints += game.team2_total_score
+            victoryPoints += game.team2_victory_points
           })
         }
       })
@@ -98,10 +101,16 @@ serve(async (req) => {
       return {
         team_id: team.id,
         team_name: team.team_name,
-        total_points: totalPoints
+        total_points: totalPoints,
+        victory_points: victoryPoints
       }
-    }).sort((a, b) => b.total_points - a.total_points)
-      .map((team, index) => ({ ...team, rank: index + 1 }))
+    }).sort((a, b) => {
+      // Sort by victory points first, then by tichu points as tiebreaker
+      if (b.victory_points !== a.victory_points) {
+        return b.victory_points - a.victory_points
+      }
+      return b.total_points - a.total_points
+    }).map((team, index) => ({ ...team, rank: index + 1 }))
 
     // Mark current round as completed and update team points
     if (tournament.current_round > 0) {
@@ -114,11 +123,14 @@ serve(async (req) => {
       if (updateRoundError) throw updateRoundError
     }
 
-    // Update team total_points with final standings
+    // Update team total_points and victory_points with final standings
     for (const team of finalStandings) {
       const { error: updateTeamError } = await supabase
         .from('teams')
-        .update({ total_points: team.total_points })
+        .update({ 
+          total_points: team.total_points,
+          victory_points: team.victory_points
+        })
         .eq('id', team.team_id)
 
       if (updateTeamError) throw updateTeamError
