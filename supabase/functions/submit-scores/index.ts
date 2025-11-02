@@ -257,16 +257,15 @@ serve(async (req) => {
       team2VictoryPoints += 1
     }
 
-    // Tichu success points (1 per successful tichu)
-    participants.forEach((p: any) => {
-      if (p.tichu_success) {
-        if (p.team === 1) {
-          team1VictoryPoints += 1
-        } else {
-          team2VictoryPoints += 1
-        }
+    // Double win bonus point (1 additional point for double win)
+    if (isDoubleWin) {
+      const winningTeam = firstPlace.team
+      if (winningTeam === 1) {
+        team1VictoryPoints += 1
+      } else {
+        team2VictoryPoints += 1
       }
-    })
+    }
 
     // Upsert game scores
     const gameData = {
